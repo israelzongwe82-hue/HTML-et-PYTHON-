@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Éditeur HTML & Python</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    background: #252526;
+    padding: 10px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+    border-bottom: 1px solid #3c3c3c;
+  }
+  .tabs { display: flex; gap: 4px; }
+  .tab {
+    padding: 6px 14px;
+    background: #2d2d30;
+    border: 1px solid #3c3c3c;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #ccc;
+  }
+  .tab.active { background: #0e639c; color: white; border-color: #0e639c; }
+  button {
+    padding: 6px 12px;
+    background: #0e639c;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  button:hover { background: #1177bb; }
+  button.danger { background: #a1260d; }
+  button.danger:hover { background: #c42b0e; }
+  button.success { background: #16825d; }
+  button.success:hover { background: #1a9c70; }
+  input[type="text"] {
+    padding: 6px 10px;
+    background: #3c3c3c;
+    color: #d4d4d4;
+    border: 1px solid #555;
+    border-radius: 4px;
+    font-size: 13px;
+    width: 180px;
+  }
+  main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  #editor-container {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+  textarea {
+    flex: 1;
+    width: 100%;
+    height: 100%;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    border: none;
+    outline: none;
+    padding: 15px;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 1.5;
+    resize: none;
+    tab-size: 4;
+  }
+  #output-container {
+    height: 40%;
+    border-top: 2px solid #0e639c;
+    display: none;
+    flex-direction: column;
+    background: #fff;
+  }
+  #output-container.visible { display: flex; }
+  #output-header {
+    background: #252526;
+    color: #d4d4d4;
+    padding: 6px 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+  }
+  #output-frame {
+    flex: 1;
+    border: none;
+    background: white;
+  }
+  #python-output {
+    flex: 1;
+    background: #000;
+    color: #0f0;
+    padding: 10px;
+    font-family: monospace;
+    font-size: 13px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+  }
+  .status {
+    font-size: 12px;
+    color: #888;
+    padding: 4px 10px;
+    background: #007acc;
+    color: white;
+  }
+  .file-info { font-size: 12px; color: #aaa; margin-left: auto; }
+  @media (max-width: 600px) {
+    input[type="text"] { width: 120px; }
+    button { padding: 5px 8px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="tabs">
+    <div class="tab active" data-lang="html" onclick="switchLang('html')">HTML</div>
+    <div class="tab" data-lang="python" onclick="switchLang('python')">Python</div>
+  </div>
+  <input type="text" id="filename" value="mon_fichier.html" placeholder="nom du fichier">
+  <button onclick="saveFile()" class="success">💾 Enregistrer</button>
+  <button onclick="runCode()">▶️ Exécuter</button>
+  <button onclick="openFile()">📂 Ouvrir</button>
+  <button class="danger" onclick="clearEditor()">🗑️ Effacer</button>
+  <input type="file" id="fileInput" style="display:none" accept=".html,.py,.txt">
+  <span class="file-info" id="fileInfo">Prêt</span>
+</header>
+
+<main>
+  <div id="editor-container">
+    <textarea id="editor" spellcheck="false" placeholder="Écrivez votre code ici..."></textarea>
+  </div>
+
+  <div id="output-container">
+    <div id="output-header">
+      <span>Aperçu / Résultat</span>
+      <button onclick="closeOutput()" style="padding:2px 8px;font-size:11px">✕</button>
+    </div>
+    <iframe id="output-frame" sandbox="allow-scripts allow-modals allow-forms"></iframe>
+    <div id="python-output" style="display:none"></div>
+  </div>
+</main>
+
+<script>
+  const editor = document.getElementById('editor');
+  const filenameInput = document.getElementById('filename');
+  const outputContainer = document.getElementById('output-container');
+  const outputFrame = document.getElementById('output-frame');
+  const pythonOutput = document.getElementById('python-output');
+  const fileInfo = document.getElementById('fileInfo');
+  const fileInput = document.getElementById('fileInput');
+
+  let currentLang = 'html';
+
+  // Charger le contenu sauvegardé localement
+  window.addEventListener('load', () => {
+    const saved = localStorage.getItem('editor_content_' + currentLang);
+    if (saved) editor.value = saved;
+    filenameInput.value = 'mon_fichier.' + (currentLang === 'html' ? 'html' : 'py');
+  });
+
+  // Sauvegarde automatique
+  editor.addEventListener('input', () => {
+    localStorage.setItem('editor_content_' + currentLang, editor.value);
+  });
+
+  function switchLang(lang) {
+    // Sauvegarder le contenu actuel
+    localStorage.setItem('editor_content_' + currentLang, editor.value);
+    currentLang = lang;
+    // Charger le contenu de la nouvelle langue
+    editor.value = localStorage.getItem('editor_content_' + lang) || '';
+    // Mettre à jour l'onglet actif
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelector(`.tab[data-lang="${lang}"]`).classList.add('active');
+    // Mettre à jour le nom de fichier par défaut
+    const ext = lang === 'html' ? '.html' : '.py';
+    const currentName = filenameInput.value.replace(/\.(html|py|txt)$/i, '');
+    filenameInput.value = currentName + ext;
+  }
+
+  // Sauvegarde du fichier sur le téléphone (via téléchargement direct)
+  function saveFile() {
+    const content = editor.value;
+    const filename = filenameInput.value || ('fichier.' + (currentLang === 'html' ? 'html' : 'py'));
+    const mimeType = currentLang === 'html' ? 'text/html' : 'text/x-python';
+
+    const blob = new Blob([content], { type: mimeType + ';charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    fileInfo.textContent = '✅ Enregistré: ' + filename;
+    setTimeout(() => fileInfo.textContent = 'Prêt', 3000);
+  }
+
+  // Ouvrir un fichier local
+  function openFile() {
+    fileInput.click();
+  }
+
+  fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      editor.value = ev.target.result;
+      filenameInput.value = file.name;
+      // Détecter le type
+      if (file.name.endsWith('.py')) switchLang('python');
+      else if (file.name.endsWith('.html')) switchLang('html');
+      fileInfo.textContent = '📂 Ouvert: ' + file.name;
+      localStorage.setItem('editor_content_' + currentLang, editor.value);
+    };
+    reader.readAsText(file);
+  });
+
+  // Exécution du code
+  function runCode() {
+    if (currentLang === 'html') {
+      runHTML();
+    } else {
+      runPython();
+    }
+  }
+
+  function runHTML() {
+    outputFrame.style.display = 'block';
+    pythonOutput.style.display = 'none';
+    outputContainer.classList.add('visible');
+    outputFrame.srcdoc = editor.value;
+    fileInfo.textContent = '▶️ HTML exécuté';
+  }
+
+  function runPython() {
+    outputFrame.style.display = 'none';
+    pythonOutput.style.display = 'block';
+    outputContainer.classList.add('visible');
+    pythonOutput.textContent = '⏳ Chargement de Python (Pyodide)...\n';
+
+    // Charger Pyodide si pas déjà chargé
+    if (!window.pyodideLoaded) {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js';
+      script.onload = async () => {
+        try {
+          pythonOutput.textContent = '⏳ Chargement de Python (peut prendre 10-20s)...\n';
+          window.pyodide = await loadPyodide();
+          window.pyodideLoaded = true;
+          executePython();
+        } catch (e) {
+          pythonOutput.textContent = '❌ Erreur chargement Pyodide:\n' + e.message;
+        }
+      };
+      script.onerror = () => {
+        pythonOutput.textContent = '❌ Impossible de charger Pyodide. Vérifiez votre connexion internet.';
+      };
+      document.head.appendChild(script);
+    } else {
+      executePython();
+    }
+  }
+
+  async function executePython() {
+    try {
+      const code = editor.value;
+      // Rediriger stdout
+      window.pyodide.setStdout({
+        batched: (msg) => {
+          pythonOutput.textContent += msg + '\n';
+        }
+      });
+      window.pyodide.setStderr({
+        batched: (msg) => {
+          pythonOutput.textContent += '⚠️ ' + msg + '\n';
+        }
+      });
+      pythonOutput.textContent = '▶️ Exécution...\n';
+      await window.pyodide.runPythonAsync(code);
+      pythonOutput.textContent += '\n✅ Exécution terminée.';
+    } catch (e) {
+      pythonOutput.textContent += '\n❌ Erreur:\n' + e.message;
+    }
+  }
+
+  function closeOutput() {
+    outputContainer.classList.remove('visible');
+    outputFrame.srcdoc = '';
+    pythonOutput.textContent = '';
+  }
+
+  function clearEditor() {
+    if (confirm('Effacer le contenu actuel ?')) {
+      editor.value = '';
+      localStorage.setItem('editor_content_' + currentLang, '');
+    }
+  }
+
+  // Gestion de la touche Tab pour indentation
+  editor.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const start = editor.selectionStart;
+      const end = editor.selectionEnd;
+      editor.value = editor.value.substring(0, start) + '    ' + editor.value.substring(end);
+      editor.selectionStart = editor.selectionEnd = start + 4;
+    }
+  });
+</script>
+</body>
+</html>
